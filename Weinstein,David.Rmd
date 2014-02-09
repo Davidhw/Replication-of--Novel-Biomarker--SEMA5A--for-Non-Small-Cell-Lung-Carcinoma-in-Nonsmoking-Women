@@ -1,0 +1,279 @@
+Replication of "Novel Biomarker, SEMA5A, for Non–Small Cell Lung Carcinoma in Nonsmoking Women"
+========================================================
+### Abstract
+
+In this study, I replicated parts of the study “Identification of a Novel Biomarker, SEMA5A, for Non–Small Cell Lung Carcinoma in Nonsmoking Women.” Specifically, I sought to determine if the gene expression of tissue varied depending on whether or not that tissue came from a tumor or an adjacent healthy cell. Towards that end, I tested three null hypotheses on each patient and gene. The first was that individual genes' expression levels would not vary significantly between tumor samples and healthy samples. The second was that individual patient’s genes’ expressions would not vary significantly between the two tissue types. Lastly, the third was that if the second hypothesis were not retained for some patients, those patients' ages would still not vary significantly from those of the other patients. 
+I rejected the first null hypothesis for 57 of 60 patients and the third hypothesis for 687 of 54675 genes. I did, however, retain the second null hypothesis. That is, 57 patients' overall gene expressions varied significantly between their healthy samples and tumor samples and 687 genes varied significantly between the patients' tissue samples, but the ages of those 57 patients and 3 patients did not vary significantly from each other. I furthermore found that 76% of those differentially expressed genes were up-regulated when taken from tumor tissue rather than healthy tissue. Both that percentage of up-regulated genes and the identification of 687 significantly differentially expressed genes match the results of the original study. There is a ranking of those genes by their effect size at the end of this study that could be used to ensure that this study's results and the original study's results match completely. 
+
+### Motivations
+
+The original study's authors sought to identify potential biomarkers of Non–Small Cell Lung Carcinoma (NSCLC). They identified 687 differentially expressed genes that they hope can help to diagnose and develop treatments for NSCLC. They specifically studied NSCLC because it is the most common class of lung tumors in Taiwan (52.5%). They studied female non-smokers because, in Taiwan, only 7% of female lung cancer cases are associated with smoking. 
+
+Through this study, I sought to replicate their identification of differentially expressed genes and, in doing so, to become familiar with the use of the R programming language as a means of analyzing biological data.
+
+### Loading Libraries
+
+```{r, message=FALSE}
+  require(Biobase)
+  require(GEOquery)
+```
+
+### Importing the Data
+
+The expression data consisted of 120 Affymetrix U133plus2.0 expression arrays taken from 60 patients. Half of the expression arrays corresponded with tissue samples taken from tumor tissue and half from adjacent healthy tissue. The other pertinent data was the patient’s age and cancer stage. I did not use the cancer stage information in this study.
+
+```{r, warning=FALSE}
+  # I use [[1]] because getGEO returns a list of (in this case) 1 ExpressionSet 
+  gset <- getGEO("GSE19804")[[1]]
+  # get the expression data
+  ex <- exprs(gset)
+```
+
+### Preparing the Data
+
+I normalized the data on a 0 to 1 scale so that the expression levels of different gene were directly comparable to each other. 
+
+```{r, warning=FALSE}
+# normalizes a given vector on a scale of 0 to 1
+normalize.vector <- function (v)
+{
+  min <- min(v)
+  max <- max(v)
+  result <- (v-min)/(max-min)
+  result
+}
+
+  # normalizes each row in a list of vectors 
+custom.normalize <- function (lv)
+{
+  rows <- nrow(lv)
+  result <- lv
+  for (r in 1:rows) {
+    result[r,] = normalize.vector(lv[r,])
+  }
+  result
+}
+
+# normalize expression data on a scale of 0 to 1
+ex <- custom.normalize(ex)
+```
+
+### Looking at the Data
+
+Note that the expression of a gene over different patients follows a fairly normal distribution. The distributions do vary though.
+
+```{r, warning=FALSE}
+plot(density(ex[2,]),main="Gene Expression Across Patients",xlab="Gene Expression (N = 120, Bandwidth = 0.04387")
+mtext("For Four Sample Genes")
+lines(density(ex[99,]),col="red")
+lines(density(ex[900,]),col="green")
+lines(density(ex[5000,]),col="blue")
+```
+
+Patients seem to have very similar gene expressions and those expressions all follow similar distributions. 
+
+```{r, warning=FALSE}
+plot(density(ex[,14]),main="Gene Expression Across Genes",xlab="Gene Expression (N = 54675, Bandwidth = 0.02056)")
+mtext("For Four Sample Patients")
+lines(density(ex[,2]),col="red")
+lines(density(ex[,50]),col="green")
+lines(density(ex[,31]),col="blue")
+```
+
+I created a long form data frame of all of the pertinent data so that I could later do a Repeated Measure ANOVA.
+
+```{r, warning=FALSE}
+# this part was inspired by http://ww2.coastal.edu/kingw/statistics/R-tutorials/repeated.html
+# create the dataframe
+custom.df <- as.data.frame(ex)
+
+# get the GEO sample IDs
+col.names = colnames(custom.df)
+
+# make a new, long format dataframe so that we can do a Repeaeted Measure ANOVA
+new.df <- stack(custom.df)
+
+# gene
+new.df[3] <- rownames(custom.df)
+
+#generate list of ages of each patient (in patient order)
+# note that  ages[1:60] == ages[61:120] because (for exmample), the first expression array and the 61rst expression array correspond to the same patient
+ages <- c(as.numeric(substr(as.vector(gset$characteristics_ch1.2  ), 6,8)))
+
+# label patients by age quartile
+new.df[4] <- (ages>=quantile(ages)[1]+0)+ ((ages >= quantile(ages)[2])+0) + ((ages >= quantile(ages)[3])+0) + ((ages >= quantile(ages)[4])+0)
+
+# label whether or not the tissue was cancerous
+new.df[5] <- c(rep(T,60), rep(F,60))
+
+# label cancer stage
+new.df[6] <- c(substr(as.vector(gset$characteristics_ch1.3  ), 8,10))
+
+# collumn names
+colnames(new.df) <- c("expression","geo.sample","gene","age.quantile","cancerous","cancer.stage")
+
+```
+
+### Ideal Data Analysis That Was Not Done
+
+My attempt at doing a Repeated Measure ANOVA failed. Unfortunately, because of the large amount of data, I was unable to successfully run the analysis on even one patient. Note that the functions “aov” and “lmer” crashed due to memory limitations while I was using Amazon Web Service's (AWS) hs1.8xlarge computer. That computer has 117 gigabytes of ram. As such, I do not recommend trying to run these commands unless you use a computer that has more ram than that. 
+Also, I should note that I did not actually run all of the commands in this file on the same computer. I ran the first two sections of code on a personal computer, then transferred my workspace file to the AWS computer and worked from there. For anyone seeking to replicate what I have done, that is significant because I was not able to run GEOquery on the AWS computer. Also note that I used the East Virginia Rstudio Server Amazon Machine created by Louis Aslett (http://www.louisaslett.com/RStudio_AMI/).
+
+```{r, warning=FALSE}
+# Failed ANOVA Commands
+#aov.out = aov(cancerous ~ expression*gene +Error(geo.sample), data=new.df)
+##"Error: Cannot allocate vector of size 5345.4 Gb"
+
+## Even when willing to limit the analysis to the data of just one patient I could not run the command.
+#geo.samples <- labels(head(ex[1,]))
+#shortened.df <- subset(new.df,geo.sample %in% geo.samples[1])
+#aov.out = aov(cancerous ~ expression*gene), data=shortened.df)
+## (rstudio crashes)
+
+# Creating a Mixed Linear Effects fails in a similar manner.
+#library("lme4")
+#lmer.out <- lmer(cancerous ~ expression*gene + (1|geo.sample), data=new.df)
+# "Error: cannot allocate vector of size 5345.4 Gb"
+```
+
+### Data Analysis
+
+In place of the ANOVA, I ran a paired t test for each gene, comparing its expression levels between healthy samples and tumor samples. The p values from the tests were adjusted by a Bonferroni correction. I held that p values less than 10^-16 indicated significance because the original study used that p value threshold.
+687 of the paired t tests indicated significance. That is, for 687 genes, there is a less than 1 in 10^-16 chance that their expression levels were independent from whether or not the sample came from a healthy sample or a tumor sample. That is the same result the original study had. 
+
+```{r, warning=FALSE}
+pcut <- 10^-16
+# adjust p values to prevent running many t tests from causing many false positives
+bonfer.adjust <- function(p){
+  p.adjust(p,method ="bonferroni")
+}
+
+# prepare t test wrapper fuction so that it can be called from within apply
+# [3] is specified because that is the index of the p value 
+t.test.gene <- function(gene){
+  bonfer.adjust(t.test(as.numeric(gene[1:60]),as.numeric(gene[61:120]), paired=TRUE)[3])
+}
+
+# run the t tests
+gene.t.tests <- apply(custom.df,1,t.test.gene)
+
+# function that founds number of values in t.tests that are less than pcut
+find.num.significant <- function(t.tests,pcut){
+  sum((t.tests<pcut)+0)
+}
+# determine how many t tests indicate a significant difference
+significant.t.tests <- sum((gene.t.tests<pcut)+0)
+# wrapper function so that find.num.genes.significant can be called by sapply
+call.find.num.genes.significant <- function(pcut){
+  find.num.significant(gene.t.tests,pcut)
+}
+p.values <- c(10^-2,10^-4,10^-6,10^-8,10^-10,10^-12,10^-14,10^-16)
+num.genes.significant <- sapply(p.values,call.find.num.genes.significant)
+
+# print table of # of significant genes per p value
+pvals <- data.frame(p.values,num.genes.significant)
+colnames(pvals) <- c("P.Value.Threshold", "Significant.Genes")
+print(pvals)
+
+# graph # of significant genes per p value
+plot(pvals$Significant.Genes,ylab="Number of Significant Genes",xlab="P Value Threshold",xaxt="n",main="Number of Significant Genes For A Given P Value Threshold")
+axis(1, at=1:length(p.values), labels=p.values)
+```
+
+ Once I had identified the genes that varied significantly between patient samples, I ran a series of paired t tests comparing the expressions of those 687 genes in each patient's tumor tissue and healthy tissue. 57 patients' gene expressions varied significantly between their two tissue samples and 3 patients' gene expressions did not. Also, the ages of those two groups of patients do not vary significantly. Running a t test of the ages of the two groups of patients resulted in a p value of 0.51, indicating insignificance. 
+ 
+
+```{r, warning=FALSE}
+# create a dataframe with non-significant genes removed
+sig.genes.df <- custom.df[(gene.t.tests<pcut),]
+
+# test each patient to see if their gene expressions differ significantly between tumor and healthy samples
+# note that the given patient's tumorous and healthy tissue samples' indexes are separated by 60. [3] is specified because that is the index at which t.test returns the p value.
+patient.t.tests.onlysiggenes <- vector(length=30)
+for (i in 1:60) {
+    patient.t.tests.onlysiggenes[i] <- (t.test(sig.genes.df[, i], sig.genes.df[, i + 60], paired = TRUE)[3])
+}
+significant.patient.t.tests.onlysiggenes <- find.num.significant(patient.t.tests.onlysiggenes,pcut)
+
+# find ages of those patients whose gene expression varied significantly between healthy/tumor tissue and of those who did not
+sig.dif.ages <- ages[1:60][(patient.t.tests.onlysiggenes < pcut)]
+not.sig.dif.ages <- ages[1:60][(patient.t.tests.onlysiggenes >= pcut)]
+
+# run a t test. it uses a welch's t test which does not assume equal variance.
+patient.age.pval <- t.test(sig.dif.ages,not.sig.dif.ages)[3]
+```
+
+I then ranked the 687 significantly differentially expressed genes by effect size. 76% of those genes were up-regulated in tumor tissue. That is the same result as the original study. I calculated effect size by averaging the distances each gene had between each patient's samples. My distance metric was the absolute value of the expression level difference. Note that when calculating effect size, I did not use the three pairs of samples from patients whose gene expressions did not vary significantly between their tissue samples. The five genes with the greatest effect sizes were 209470_s_at, 217046_s_at, 239650_at, 209469_at, and 230560_at. 
+
+```{r, warning=FALSE}
+
+# create a dataframe consisting only of genes that vary significantly between tumor samples and healthy samples and containing only patients whose genes vary between such samples
+sig.genes.sig.patients.df <- sig.genes.df[rep((patient.t.tests.onlysiggenes<10^-16),2)]
+
+# calculate differences between tumor sample gene expression and healthy sample gene expression
+dif.df <- sig.genes.df[,((length(sig.genes.sig.patients.df)/2)+1):length(sig.genes.sig.patients.df)]-sig.genes.sig.patients.df[,1:(length(sig.genes.sig.patients.df)/2)]
+  
+
+# calculate the absolute version of the differences because to make difference into distance
+abs.df <- abs(dif.df)
+
+# average the differences/distances to get effect size and average difference
+effect.sizes <- apply(abs.df,1,mean)
+dif.sizes <- apply(dif.df,1,mean)
+
+# create a list of the genes in order of effect size
+sorted.genes <- labels(sort(effect.sizes,decreasing=TRUE))
+
+# create a dataframe of gene names and percent differences
+top.genes <- data.frame(sorted.genes,as.numeric(round(100*dif.sizes[sorted.genes])))
+colnames(top.genes) <- c("Affymetrix ID","Average Percent Change")
+print(top.genes)
+
+# plot some density plots and box plots of the absolute percent changes (magnitude) and the percent changes
+plot(density(100*effect.sizes),main="Density of Absolute Percent Changes of Gene Expression",xlab="Absolute Percent Change (N=687, Bandwidth = 1.588)")
+plot(density(100*dif.sizes),main="Density of Signed Percent Changes of Gene Expression",xlab="Percent Change (N=687, Bandwidth = 2.751)")
+boxplot(100*effect.sizes,main="Percent Changes of Gene Expression",100*dif.sizes,main="Percent Changes of Gene Expression Between Samples",ylab="Percent")
+axis(1, at=1:2, labels=c("Absolute Percent (Magnitude)","Signed Percent"))
+
+
+# returns indices of the n greatest numbers in a vector
+find.n.max <- function(vect,n){
+  sorted <- sort(vect,decreasing=TRUE)
+  ret <- vector()
+  for (i in 1:n){
+      ret <- c(ret,sorted[i])
+    }
+  invisible(ret)
+ }
+
+# get top 5 genes with greatest effect sizes and print them
+tf <- find.n.max(effect.sizes,5)
+print("Top five genes by effect size: ",quote=FALSE)
+print(labels(tf))
+
+# note how many upregulated vs downregulated between healthy and tumor cells
+num.upregulated <- sum((dif.sizes>=0)+0)
+num.downregulated <- sum((dif.sizes<0)+0)
+print (paste(round((num.upregulated/(num.upregulated+num.downregulated)),2)*100,"% of the genes up-regulated when measured from tumor samples rather than healthy samples. Specifically,", num.upregulated,"up-regulated and",num.downregulated,"down-regulated."),quote=FALSE)
+```
+
+### Conclusion
+The results of this study were very similar to those of the original. Specifically, it identified the same number of genes as being significantly differentially expressed between sample types and it identified the same percentage of those genes as being up-regulated. This similarity indicates an increased likelihood that the analysis of the original study was correct. With that said, to ensure that the results really are the same, the specific list of the 687 genes that this study generated ought to be compared with the original study's list. Also, though this study replicated the original's results, the data itself may be flawed. Lastly, this study did not just replicate the original. It also determined how many of the patients' gene profiles actually varied significantly between sample types. That 95% of the patients' gene expressions varied significantly between their two samples indicates that these genes may be useful as biomarkers in a substantial part of the East Asian female non-smoker population. This study also retained the null hypothesis that those whose genes were not significantly differentially expressed did not vary significantly from the other patients in age. That may indicate that those biomarkers are equally effective for all age groups, but it could also indicate that more data is needed to make a judgement about that topic as there were only three patients whose gene expression levels did not vary significantly between their tissue samples.
+
+### Citations
+Lu TP, Tsai MH, Lee JM, Hsu CP et al. Identification of a novel biomarker, SEMA5A, for non-small cell lung carcinoma in nonsmoking women. Cancer Epidemiol Biomarkers Prev 2010 Oct;19(10):2590-7. PMID: 20802022
+
+Aslett, Louis. RStudio Server Amazon Machine Image., 12 June 2013. Web. <http://www.louisaslett.com/RStudio_AMI/>.
+
+User25658. "How to Normalize Data to 0-1 Range?" CrossValidated. Stack Exchange, 23 Sept. 2013. Web. <http://stats.stackexchange.com/questions/70801/how-to-normalize-data-to-0-1-range>.
+
+"R Guide - Analysis of Variance." R Guide. Personality Project, n.d. Web. <https://personality-project.org/r/r.anova.html>.
+
+King, William B. "Repeated Measures ANOVA." R Tutorials. Costal Carolina University, n.d. Web. <http://ww2.coastal.edu/kingw/statistics/R-tutorials/repeated.html>. 
+
+"R: Adjust P-values for Multiple Comparisons." R Documentation. Seminar For Statistics of Swiss Federal Institute of Technology, Web. <http://stat.ethz.ch/R-manual/R-patched/library/stats/html/p.adjust.html>.
+
+Bioconductor: Open software development for computational biology and
+  bioinformatics R. Gentleman, V. J. Carey, D. M. Bates, B.Bolstad, M. Dettling, S.
+  Dudoit, B. Ellis, L. Gautier, Y. Ge, and others 2004, Genome Biology, Vol. 5, R80
+
